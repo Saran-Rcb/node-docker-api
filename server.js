@@ -4,7 +4,7 @@ const app = express();
 
 app.get("/", (req, res) => {
     res.json({
-        message: "Hello from my UPDATED Docker API!"
+        message: "Hello from version 2!"
     });
 });
 
