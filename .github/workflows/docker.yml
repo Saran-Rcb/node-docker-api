@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-
+  workflow_dispatch:
 jobs:
   docker-build-push:
     runs-on: ubuntu-latest
@@ -24,3 +24,25 @@ jobs:
 
       - name: Push Docker image
         run: docker push saran0k/node-docker-api:latest
+
+      - name: Deploy to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
+          EC2_PRIVATE_KEY: ${{ secrets.EC2_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$EC2_PRIVATE_KEY" > ~/.ssh/ec2_key.pem
+          chmod 600 ~/.ssh/ec2_key.pem
+
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+
+          ssh -i ~/.ssh/ec2_key.pem "$EC2_USERNAME@$EC2_HOST" << 'EOF'
+            sudo docker pull saran0k/node-docker-api:latest
+            sudo docker stop node-api-container || true
+            sudo docker rm node-api-container || true
+            sudo docker run -d \
+              --name node-api-container \
+              -p 3000:3000 \
+              saran0k/node-docker-api:latest
+          EOF
