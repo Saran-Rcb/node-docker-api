@@ -4,54 +4,96 @@ on:
   push:
     branches:
       - main
+
   workflow_dispatch:
 
 jobs:
-  docker-build-push:
+  docker-build-push-deploy:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Get the code from GitHub
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Log in to Docker Hub
+      # 2. Login to Docker Hub
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
+      # 3. Build Docker image
       - name: Build Docker image
-        run: docker build -t saran0k/node-docker-api:latest .
-
-      - name: Push Docker image
-        run: docker push saran0k/node-docker-api:latest
-
-      - name: Prepare SSH key
-        env:
-          EC2_PRIVATE_KEY_B64: ${{ secrets.EC2_PRIVATE_KEY_B64 }}
         run: |
-          mkdir -p ~/.ssh
-          echo "$EC2_PRIVATE_KEY_B64" | base64 --decode > ~/.ssh/ec2_key.pem
-          chmod 600 ~/.ssh/ec2_key.pem
+          docker build \
+            -t saran0k/node-docker-api:latest \
+            .
 
-          echo "SSH key file created."
+      # 4. Push image to Docker Hub
+      - name: Push Docker image
+        run: |
+          docker push saran0k/node-docker-api:latest
 
-          ssh-keygen -y -f ~/.ssh/ec2_key.pem > /tmp/public_key.pub
-
-          echo "SSH private key can be read successfully."
-
-      - name: Test EC2 SSH
+      # 5. Deploy to AWS EC2
+      - name: Deploy to EC2
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USERNAME: ${{ secrets.EC2_USERNAME }}
+          EC2_PRIVATE_KEY_B64: ${{ secrets.EC2_PRIVATE_KEY_B64 }}
+
         run: |
+          echo "Preparing SSH..."
+
+          mkdir -p ~/.ssh
+
+          echo "$EC2_PRIVATE_KEY_B64" | base64 --decode > ~/.ssh/ec2_key
+
+          chmod 600 ~/.ssh/ec2_key
+
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
 
           echo "Testing SSH connection..."
 
-          ssh -vvv \
+          ssh \
+            -i ~/.ssh/ec2_key \
             -o StrictHostKeyChecking=yes \
-            -o ConnectTimeout=15 \
-            -i ~/.ssh/ec2_key.pem \
             "$EC2_USERNAME@$EC2_HOST" \
             "echo SSH_CONNECTION_SUCCESS"
+
+          echo "SSH connection successful!"
+
+          echo "Deploying Docker container..."
+
+          ssh \
+            -i ~/.ssh/ec2_key \
+            -o StrictHostKeyChecking=yes \
+            "$EC2_USERNAME@$EC2_HOST" << 'EOF'
+
+            echo "Pulling latest Docker image..."
+
+            sudo docker pull saran0k/node-docker-api:latest
+
+            echo "Stopping old container..."
+
+            sudo docker stop node-api-container || true
+
+            echo "Removing old container..."
+
+            sudo docker rm node-api-container || true
+
+            echo "Starting new container..."
+
+            sudo docker run -d \
+              --name node-api-container \
+              -p 3000:3000 \
+              --restart unless-stopped \
+              saran0k/node-docker-api:latest
+
+            echo "Deployment completed!"
+
+            echo "Running containers:"
+
+            sudo docker ps
+
+          EOF
