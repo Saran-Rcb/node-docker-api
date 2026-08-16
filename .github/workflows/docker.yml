@@ -40,6 +40,7 @@ jobs:
 
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
 
-          ssh -i ~/.ssh/ec2_key.pem \
-            "$EC2_USERNAME@$EC2_HOST" \
-            "echo SSH_CONNECTION_SUCCESS"
+          ssh -vvv -o StrictHostKeyChecking=yes \
+          -i ~/.ssh/ec2_key.pem \
+          "$EC2_USERNAME@$EC2_HOST" \
+          "echo SSH_CONNECTION_SUCCESS"
